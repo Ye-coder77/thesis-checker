@@ -2,7 +2,7 @@ import streamlit as st
 from docx import Document
 import re
 
-st.title("📄 学位论文格式检测工具（专业版）")
+st.title("📄 学位论文格式检测工具（测试版）")
 
 uploaded_file = st.file_uploader("上传论文（.docx）", type=["docx"])
 
