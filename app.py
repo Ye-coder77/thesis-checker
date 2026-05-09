@@ -37,7 +37,7 @@ def is_table(text):
 
 
 # ===========================
-# 核心检测（已修复逻辑）
+# 核心检测（已彻底修复误判）
 # ===========================
 
 def check_format(doc):
@@ -61,7 +61,7 @@ def check_format(doc):
         errors = []
         pf = para.paragraph_format
 
-        # ===== 正确解析章号（关键修复）=====
+        # ===== 正确解析章号 =====
         if is_title_level1(text):
             match = re.search(r'\d+', text)
             if match:
@@ -81,21 +81,28 @@ def check_format(doc):
             errors.append("未设置首行缩进")
             summary["缩进错误"] += 1
 
-        # ===== 标题检测 =====
+        # ===== 标题检测（修复版） =====
         if is_title_level1(text):
             if "第一章" in text:
                 errors.append("一级标题不能使用中文编号")
                 summary["标题错误"] += 1
 
-        if current_chapter:
-            if is_title_level2(text):
-                if not re.match(rf'^{current_chapter}\.\d+', text):
-                    errors.append("二级标题编号错误（应为当前章编号，如1.1）")
+        # 二级标题
+        if is_title_level2(text):
+            match = re.match(r'^(\d+)\.(\d+)', text)
+            if match:
+                chapter_num = int(match.group(1))
+                if current_chapter is not None and chapter_num != current_chapter:
+                    errors.append(f"二级标题编号错误（应属于第{current_chapter}章）")
                     summary["标题错误"] += 1
 
-            if is_title_level3(text):
-                if not re.match(rf'^{current_chapter}\.\d+\.\d+', text):
-                    errors.append("三级标题编号错误（应为1.1.1）")
+        # 三级标题
+        if is_title_level3(text):
+            match = re.match(r'^(\d+)\.(\d+)\.(\d+)', text)
+            if match:
+                chapter_num = int(match.group(1))
+                if current_chapter is not None and chapter_num != current_chapter:
+                    errors.append(f"三级标题编号错误（应属于第{current_chapter}章）")
                     summary["标题错误"] += 1
 
         # ===== 图表 =====
@@ -138,7 +145,7 @@ def check_format(doc):
 
 
 # ===========================
-# 标注版论文（真正定位）
+# 标注论文（真正定位）
 # ===========================
 
 def highlight_doc(doc, results):
