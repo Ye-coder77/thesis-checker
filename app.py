@@ -2,11 +2,10 @@ import streamlit as st
 from docx import Document
 import re
 import tempfile
-from docx.shared import Pt
 
-st.set_page_config(page_title="论文格式检测工具（专业版）", layout="wide")
+st.set_page_config(page_title="论文格式检测工具", layout="wide")
 
-st.title("📄 学位论文格式检测工具（专业版）")
+st.title("📄 学位论文格式检测工具")
 
 uploaded_file = st.file_uploader("上传论文（.docx）", type=["docx"])
 
@@ -22,7 +21,7 @@ def is_english_or_number(text):
     return any(c.isascii() and (c.isalpha() or c.isdigit()) for c in text)
 
 def is_title_level1(text):
-    return re.match(r'^第?\d+章', text)
+    return re.match(r'^第\d+章', text)
 
 def is_title_level2(text):
     return re.match(r'^\d+\.\d+', text)
@@ -36,15 +35,9 @@ def is_figure(text):
 def is_table(text):
     return text.startswith("表")
 
-def check_figure_number(text, chapter):
-    return re.match(rf'^图{chapter}\.\d+', text)
-
-def check_table_number(text, chapter):
-    return re.match(rf'^表{chapter}\.\d+', text)
-
 
 # ===========================
-# 检测函数（稳定版）
+# 核心检测（已修复逻辑）
 # ===========================
 
 def check_format(doc):
@@ -58,7 +51,7 @@ def check_format(doc):
         "图表错误": 0
     }
 
-    current_chapter = 1
+    current_chapter = None
 
     for i, para in enumerate(doc.paragraphs):
         text = para.text.strip()
@@ -68,7 +61,13 @@ def check_format(doc):
         errors = []
         pf = para.paragraph_format
 
-        # 行距
+        # ===== 正确解析章号（关键修复）=====
+        if is_title_level1(text):
+            match = re.search(r'\d+', text)
+            if match:
+                current_chapter = int(match.group())
+
+        # ===== 行距 =====
         ls = pf.line_spacing
         if ls is None:
             errors.append("未设置行距（应为20磅）")
@@ -77,44 +76,44 @@ def check_format(doc):
             errors.append("行距不是20磅")
             summary["行距错误"] += 1
 
-        # 缩进
+        # ===== 缩进 =====
         if pf.first_line_indent is None:
             errors.append("未设置首行缩进")
             summary["缩进错误"] += 1
 
-        # 标题
+        # ===== 标题检测 =====
         if is_title_level1(text):
-            current_chapter += 1
             if "第一章" in text:
-                errors.append("一级标题不能用中文编号")
+                errors.append("一级标题不能使用中文编号")
                 summary["标题错误"] += 1
 
-        if is_title_level2(text):
-            if not text.startswith(f"{current_chapter}."):
-                errors.append("二级标题编号错误")
-                summary["标题错误"] += 1
+        if current_chapter:
+            if is_title_level2(text):
+                if not re.match(rf'^{current_chapter}\.\d+', text):
+                    errors.append("二级标题编号错误（应为当前章编号，如1.1）")
+                    summary["标题错误"] += 1
 
-        if is_title_level3(text):
-            if not text.startswith(f"{current_chapter}."):
-                errors.append("三级标题编号错误")
-                summary["标题错误"] += 1
+            if is_title_level3(text):
+                if not re.match(rf'^{current_chapter}\.\d+\.\d+', text):
+                    errors.append("三级标题编号错误（应为1.1.1）")
+                    summary["标题错误"] += 1
 
-        # 图表
-        if is_figure(text):
-            if not check_figure_number(text, current_chapter):
-                errors.append("图编号应为 图X.X")
-                summary["图表错误"] += 1
+        # ===== 图表 =====
+        if current_chapter:
+            if is_figure(text):
+                if not re.match(rf'^图{current_chapter}\.\d+', text):
+                    errors.append("图编号应为 图X.X")
+                    summary["图表错误"] += 1
 
-        if is_table(text):
-            if not check_table_number(text, current_chapter):
-                errors.append("表编号应为 表X.X")
-                summary["图表错误"] += 1
+            if is_table(text):
+                if not re.match(rf'^表{current_chapter}\.\d+', text):
+                    errors.append("表编号应为 表X.X")
+                    summary["图表错误"] += 1
 
-        # 字体字号
+        # ===== 字体字号 =====
         for run in para.runs:
-            font = run.font
-            name = font.name
-            size = font.size
+            name = run.font.name
+            size = run.font.size
 
             if name:
                 if is_chinese(run.text) and "宋体" not in name:
@@ -130,7 +129,7 @@ def check_format(doc):
                 summary["字号错误"] += 1
 
         if errors:
-            results[i] = {
+            results[i + 1] = {
                 "text": text,
                 "errors": list(set(errors))
             }
@@ -139,33 +138,31 @@ def check_format(doc):
 
 
 # ===========================
-# 标注（真正定位）
+# 标注版论文（真正定位）
 # ===========================
 
-def highlight_and_comment(doc, results):
+def highlight_doc(doc, results):
     for i, para in enumerate(doc.paragraphs):
-        if i in results:
-
-            # 高亮
+        if i + 1 in results:
             for run in para.runs:
                 run.font.highlight_color = 7
 
-            # 添加说明
-            comment_text = "\n【检测问题】\n"
-            for err in results[i]["errors"]:
-                comment_text += f"- {err}\n"
+            note = "\n【检测问题】\n"
+            for err in results[i + 1]["errors"]:
+                note += f"- {err}\n"
 
-            para.add_run(comment_text)
+            para.add_run(note)
 
     return doc
 
 
 # ===========================
-# 报告生成
+# 报告
 # ===========================
 
 def generate_report(results, summary):
     doc = Document()
+
     doc.add_heading("论文格式检测报告", 0)
 
     total = sum(summary.values())
@@ -177,13 +174,13 @@ def generate_report(results, summary):
     doc.add_heading("详细问题", 1)
 
     for para, content in results.items():
-        doc.add_paragraph(f"第{para+1}段：{content['text']}")
+        doc.add_paragraph(f"第{para}段：{content['text']}")
         for err in content["errors"]:
-            doc.add_paragraph(f" - {err}")
+            doc.add_paragraph(f"- {err}")
 
-    temp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
-    doc.save(temp.name)
-    return temp.name
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+    doc.save(tmp.name)
+    return tmp.name
 
 
 # ===========================
@@ -195,65 +192,37 @@ if uploaded_file:
 
     results, summary = check_format(doc)
 
-    st.success("检测完成")
+    st.subheader("📊 检测结果")
 
     total = sum(summary.values())
     st.error(f"共发现 {total} 个问题")
 
-    # 左右布局
-    col1, col2 = st.columns([1, 2])
+    col1, col2, col3 = st.columns(3)
+    col1.metric("字体", summary["字体错误"])
+    col2.metric("标题", summary["标题错误"])
+    col3.metric("图表", summary["图表错误"])
 
-    if "focus_para" not in st.session_state:
-        st.session_state["focus_para"] = None
+    st.divider()
 
-    # 左侧
-    with col1:
-        st.markdown("## ❌ 问题列表")
+    st.subheader("📍 问题详情")
 
-        for para, content in results.items():
-            if st.button(f"👉 第{para+1}段", key=f"btn_{para}"):
-                st.session_state["focus_para"] = para
-
+    for para, content in results.items():
+        with st.expander(f"第{para}段：{content['text'][:30]}"):
             for err in content["errors"]:
-                st.write(f" - {err}")
-
-    # 右侧
-    with col2:
-        st.markdown("## 📄 原文")
-
-        focus_para = st.session_state["focus_para"]
-
-        for i, para in enumerate(doc.paragraphs):
-            text = para.text.strip()
-
-            if i == focus_para:
-                st.markdown(
-                    f"<div style='background-color:#ffcccc;padding:10px;border-radius:6px'>"
-                    f"<b>👉 当前段：</b>{text}</div>",
-                    unsafe_allow_html=True
-                )
-            elif i in results:
-                st.markdown(
-                    f"<div style='background-color:#ffe6e6;padding:6px'>"
-                    f"{text}</div>",
-                    unsafe_allow_html=True
-                )
-            else:
-                st.write(text)
+                st.write(f"👉 {err}")
 
     # 下载报告
     report_path = generate_report(results, summary)
-
     with open(report_path, "rb") as f:
         st.download_button("📥 下载检测报告", f, file_name="检测报告.docx")
 
     # 标注论文
     if st.button("🖍 生成标注版论文"):
         doc_marked = Document(uploaded_file)
-        doc_marked = highlight_and_comment(doc_marked, results)
+        doc_marked = highlight_doc(doc_marked, results)
 
-        temp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
-        doc_marked.save(temp.name)
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+        doc_marked.save(tmp.name)
 
-        with open(temp.name, "rb") as f:
+        with open(tmp.name, "rb") as f:
             st.download_button("📥 下载标注论文", f, file_name="标注论文.docx")
