@@ -37,7 +37,28 @@ def is_table(text):
 
 
 # ===========================
-# 核心检测（已彻底修复误判）
+# ✅ 关键：建立章节映射（彻底修复）
+# ===========================
+
+def build_chapter_map(doc):
+    chapter_map = {}
+    current_chapter = None
+
+    for i, para in enumerate(doc.paragraphs):
+        text = para.text.strip()
+
+        if re.match(r'^第\d+章', text):
+            match = re.search(r'\d+', text)
+            if match:
+                current_chapter = int(match.group())
+
+        chapter_map[i] = current_chapter
+
+    return chapter_map
+
+
+# ===========================
+# 核心检测
 # ===========================
 
 def check_format(doc):
@@ -51,7 +72,7 @@ def check_format(doc):
         "图表错误": 0
     }
 
-    current_chapter = None
+    chapter_map = build_chapter_map(doc)
 
     for i, para in enumerate(doc.paragraphs):
         text = para.text.strip()
@@ -60,12 +81,7 @@ def check_format(doc):
 
         errors = []
         pf = para.paragraph_format
-
-        # ===== 正确解析章号 =====
-        if is_title_level1(text):
-            match = re.search(r'\d+', text)
-            if match:
-                current_chapter = int(match.group())
+        current_chapter = chapter_map[i]
 
         # ===== 行距 =====
         ls = pf.line_spacing
@@ -81,28 +97,34 @@ def check_format(doc):
             errors.append("未设置首行缩进")
             summary["缩进错误"] += 1
 
-        # ===== 标题检测（修复版） =====
+        # ===== 一级标题 =====
         if is_title_level1(text):
             if "第一章" in text:
-                errors.append("一级标题不能使用中文编号")
+                errors.append("一级标题不能用中文编号")
                 summary["标题错误"] += 1
 
-        # 二级标题
+        # ===== 二级标题 =====
         if is_title_level2(text):
             match = re.match(r'^(\d+)\.(\d+)', text)
             if match:
                 chapter_num = int(match.group(1))
-                if current_chapter is not None and chapter_num != current_chapter:
-                    errors.append(f"二级标题编号错误（应属于第{current_chapter}章）")
+
+                if current_chapter and chapter_num != current_chapter:
+                    errors.append(
+                        f"二级标题错误：属于第{current_chapter}章，却写成{chapter_num}.x"
+                    )
                     summary["标题错误"] += 1
 
-        # 三级标题
+        # ===== 三级标题 =====
         if is_title_level3(text):
             match = re.match(r'^(\d+)\.(\d+)\.(\d+)', text)
             if match:
                 chapter_num = int(match.group(1))
-                if current_chapter is not None and chapter_num != current_chapter:
-                    errors.append(f"三级标题编号错误（应属于第{current_chapter}章）")
+
+                if current_chapter and chapter_num != current_chapter:
+                    errors.append(
+                        f"三级标题错误：属于第{current_chapter}章，却写成{chapter_num}.x.x"
+                    )
                     summary["标题错误"] += 1
 
         # ===== 图表 =====
@@ -145,7 +167,7 @@ def check_format(doc):
 
 
 # ===========================
-# 标注论文（真正定位）
+# 标注论文
 # ===========================
 
 def highlight_doc(doc, results):
