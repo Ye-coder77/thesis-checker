@@ -1,10 +1,9 @@
 import streamlit as st
 from docx import Document
-from docx.shared import Pt
 import re
 import tempfile
 
-st.set_page_config(page_title="论文格式检测工具（测试版）", layout="wide")
+st.set_page_config(page_title="论文格式检测工具（专业版）", layout="wide")
 
 st.title("📄 学位论文格式检测工具（专业版）")
 
@@ -12,7 +11,7 @@ uploaded_file = st.file_uploader("上传论文（.docx）", type=["docx"])
 
 
 # ===========================
-# 🔍 工具函数
+# 工具函数
 # ===========================
 
 def is_chinese(text):
@@ -44,7 +43,7 @@ def check_table_number(text, chapter):
 
 
 # ===========================
-# 🔍 检测函数（稳定版）
+# 检测函数（稳定版）
 # ===========================
 
 def check_format(doc):
@@ -68,7 +67,7 @@ def check_format(doc):
         errors = []
         pf = para.paragraph_format
 
-        # ===== 行距 =====
+        # 行距
         ls = pf.line_spacing
         if ls is None:
             errors.append("未设置行距（应为20磅）")
@@ -77,12 +76,12 @@ def check_format(doc):
             errors.append("行距不是20磅")
             summary["行距错误"] += 1
 
-        # ===== 缩进 =====
+        # 缩进
         if pf.first_line_indent is None:
             errors.append("未设置首行缩进")
             summary["缩进错误"] += 1
 
-        # ===== 标题 =====
+        # 标题检测
         if is_title_level1(text):
             current_chapter += 1
             if "第一章" in text:
@@ -99,7 +98,7 @@ def check_format(doc):
                 errors.append("三级标题编号错误")
                 summary["标题错误"] += 1
 
-        # ===== 图表 =====
+        # 图表
         if is_figure(text):
             if not check_figure_number(text, current_chapter):
                 errors.append("图编号应为 图X.X")
@@ -110,7 +109,7 @@ def check_format(doc):
                 errors.append("表编号应为 表X.X")
                 summary["图表错误"] += 1
 
-        # ===== 字体字号 =====
+        # 字体字号
         for run in para.runs:
             font = run.font
             name = font.name
@@ -139,7 +138,7 @@ def check_format(doc):
 
 
 # ===========================
-# 📄 Word报告
+# Word报告
 # ===========================
 
 def generate_report(results, summary):
@@ -165,7 +164,7 @@ def generate_report(results, summary):
 
 
 # ===========================
-# 🚀 主程序
+# 主程序
 # ===========================
 
 if uploaded_file:
@@ -178,29 +177,39 @@ if uploaded_file:
     total = sum(summary.values())
     st.error(f"共发现 {total} 个问题")
 
+    # 初始化定位
+    if "focus_para" not in st.session_state:
+        st.session_state["focus_para"] = None
+
     col1, col2 = st.columns([1, 2])
 
-    # ===== 左侧：错误列表 =====
+    # ===== 左侧：问题列表（按钮版）=====
     with col1:
-        st.markdown("## ❌ 问题列表（可点击）")
+        st.markdown("## ❌ 问题列表（点击定位）")
 
         for para, content in results.items():
-            st.markdown(
-                f"[👉 第{para+1}段：{content['text'][:20]}](#para_{para})"
-            )
+            if st.button(f"👉 第{para+1}段", key=f"btn_{para}"):
+                st.session_state["focus_para"] = para
+
             for err in content["errors"]:
                 st.write(f" - {err}")
 
     # ===== 右侧：原文 =====
     with col2:
-        st.markdown("## 📄 原文（自动定位 + 高亮）")
+        st.markdown("## 📄 原文（定位 + 高亮）")
+
+        focus_para = st.session_state.get("focus_para")
 
         for i, para in enumerate(doc.paragraphs):
             text = para.text.strip()
 
-            st.markdown(f"<div id='para_{i}'></div>", unsafe_allow_html=True)
-
-            if i in results:
+            if i == focus_para:
+                st.markdown(
+                    f"<div style='background-color:#ffcccc;padding:12px;border-radius:8px'>"
+                    f"<b>👉 当前定位：第{i+1}段</b><br>{text}</div>",
+                    unsafe_allow_html=True
+                )
+            elif i in results:
                 st.markdown(
                     f"<div style='background-color:#ffe6e6;padding:8px;border-radius:5px'>"
                     f"<b>第{i+1}段：</b>{text}</div>",
