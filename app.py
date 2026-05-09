@@ -4,8 +4,8 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 import re
 import tempfile
 
-st.set_page_config(page_title="论文格式检测工具（规范版）", layout="wide")
-st.title("📄 学位论文格式检测工具（规范版）")
+st.set_page_config(page_title="论文格式检测工具（专业版）", layout="wide")
+st.title("📄 学位论文格式检测工具（专业版）")
 
 uploaded_file = st.file_uploader("上传论文（.docx）", type=["docx"])
 
@@ -17,7 +17,7 @@ uploaded_file = st.file_uploader("上传论文（.docx）", type=["docx"])
 def classify(text):
     text = text.strip()
 
-    if text == "摘 要" or text == "摘要":
+    if text in ["摘要", "摘 要"]:
         return "cn_abstract_title"
 
     if text == "ABSTRACT":
@@ -63,13 +63,6 @@ def is_chinese(text):
 
 def check(doc):
     results = {}
-    summary = {
-        "摘要问题": 0,
-        "正文问题": 0,
-        "标题问题": 0,
-        "图表问题": 0,
-        "字体问题": 0
-    }
 
     for i, para in enumerate(doc.paragraphs):
         text = para.text.strip()
@@ -87,7 +80,6 @@ def check(doc):
             for run in para.runs:
                 if run.font.name and "黑体" not in run.font.name:
                     errors.append("摘要标题应为黑体")
-                    break
 
         # ===== 英文摘要标题 =====
         if ptype == "en_abstract_title":
@@ -96,24 +88,21 @@ def check(doc):
             for run in para.runs:
                 if run.font.name and "Times" not in run.font.name:
                     errors.append("ABSTRACT应为Times New Roman")
-                    break
 
         # ===== 中文正文 =====
         if ptype == "cn_body":
             if pf.first_line_indent is None:
-                errors.append("中文正文应首行缩进2字符")
+                errors.append("中文正文应首行缩进")
 
             for run in para.runs:
                 if run.font.name and "宋体" not in run.font.name:
                     errors.append("中文正文应为宋体")
-                    break
 
         # ===== 英文正文 =====
         if ptype == "en_body":
             for run in para.runs:
                 if run.font.name and "Times" not in run.font.name:
                     errors.append("英文正文应为Times New Roman")
-                    break
 
         # ===== 一级标题 =====
         if ptype == "title1":
@@ -141,17 +130,17 @@ def check(doc):
         # ===== 图 =====
         if ptype == "figure":
             if not re.match(r'^图\d+[-\.]\d+', text):
-                errors.append("图编号格式错误，应为图1-1或图1.1")
+                errors.append("图编号格式错误（图1-1 或 图1.1）")
 
         # ===== 表 =====
         if ptype == "table":
             if not re.match(r'^表\d+\.\d+', text):
-                errors.append("表编号格式错误，应为表1.1")
+                errors.append("表编号格式错误（表1.1）")
 
         # ===== 关键词 =====
         if ptype == "cn_keywords":
             if "；" not in text and "，" not in text:
-                errors.append("关键词应使用分号或逗号分隔")
+                errors.append("关键词应使用中文分号或逗号")
 
         if ptype == "en_keywords":
             if ";" not in text and "," not in text:
@@ -160,14 +149,15 @@ def check(doc):
         if errors:
             results[i + 1] = {
                 "text": text,
-                "errors": errors
+                "type": ptype,
+                "errors": list(set(errors))
             }
 
-    return results, summary
+    return results
 
 
 # ===========================
-# 标注
+# 标注论文
 # ===========================
 
 def highlight(doc, results):
@@ -189,7 +179,7 @@ def highlight(doc, results):
 # 报告
 # ===========================
 
-def report(results):
+def generate_report(results):
     doc = Document()
     doc.add_heading("论文格式检测报告", 0)
 
@@ -204,26 +194,80 @@ def report(results):
 
 
 # ===========================
-# 主程序
+# UI 展示（专业版）
 # ===========================
 
 if uploaded_file:
     doc = Document(uploaded_file)
-    results, summary = check(doc)
+    results = check(doc)
 
-    st.error(f"共发现 {len(results)} 处问题")
+    total = len(results)
+
+    categories = {
+        "cn_abstract_title": "摘要",
+        "en_abstract_title": "摘要",
+        "cn_keywords": "摘要",
+        "en_keywords": "摘要",
+        "cn_body": "正文",
+        "en_body": "正文",
+        "title1": "标题",
+        "title2": "标题",
+        "title3": "标题",
+        "title4": "标题",
+        "figure": "图表",
+        "table": "图表"
+    }
+
+    grouped = {"摘要": [], "正文": [], "标题": [], "图表": []}
 
     for para, content in results.items():
-        with st.expander(f"第{para}段：{content['text'][:30]}"):
-            for err in content["errors"]:
-                st.write(f"👉 {err}")
+        group = categories.get(content["type"], "正文")
+        grouped[group].append((para, content))
 
-    # 报告
-    path = report(results)
-    with open(path, "rb") as f:
+    # ===== 总览 =====
+    st.markdown("## 📊 检测总览")
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("摘要问题", len(grouped["摘要"]))
+    col2.metric("正文问题", len(grouped["正文"]))
+    col3.metric("标题问题", len(grouped["标题"]))
+    col4.metric("图表问题", len(grouped["图表"]))
+
+    st.error(f"⚠️ 共发现 {total} 处问题")
+
+    st.divider()
+
+    # ===== 卡片展示 =====
+    def render_card(para, content):
+        st.markdown(f"""
+        <div style="
+            border:1px solid #eee;
+            border-radius:10px;
+            padding:12px;
+            margin-bottom:10px;
+            background:#fafafa;
+        ">
+            <b>第{para}段：</b>{content['text'][:80]}<br>
+            <span style="color:#d9534f;">⚠️ {len(content['errors'])}个问题</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        for err in content["errors"]:
+            st.write(f"👉 {err}")
+
+    # ===== 分类展示 =====
+    for group_name, items in grouped.items():
+        if items:
+            with st.expander(f"📌 {group_name}部分（{len(items)}项问题）"):
+                for para, content in items:
+                    render_card(para, content)
+
+    # ===== 下载报告 =====
+    report_path = generate_report(results)
+    with open(report_path, "rb") as f:
         st.download_button("📥 下载检测报告", f, file_name="检测报告.docx")
 
-    # 标注
+    # ===== 标注 =====
     if st.button("🖍 生成标注版论文"):
         doc2 = Document(uploaded_file)
         doc2 = highlight(doc2, results)
