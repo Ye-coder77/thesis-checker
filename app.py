@@ -2,6 +2,7 @@ import streamlit as st
 from docx import Document
 import re
 import tempfile
+from docx.shared import Pt
 
 st.set_page_config(page_title="论文格式检测工具（专业版）", layout="wide")
 
@@ -81,7 +82,7 @@ def check_format(doc):
             errors.append("未设置首行缩进")
             summary["缩进错误"] += 1
 
-        # 标题检测
+        # 标题
         if is_title_level1(text):
             current_chapter += 1
             if "第一章" in text:
@@ -138,7 +139,29 @@ def check_format(doc):
 
 
 # ===========================
-# Word报告
+# 标注（真正定位）
+# ===========================
+
+def highlight_and_comment(doc, results):
+    for i, para in enumerate(doc.paragraphs):
+        if i in results:
+
+            # 高亮
+            for run in para.runs:
+                run.font.highlight_color = 7
+
+            # 添加说明
+            comment_text = "\n【检测问题】\n"
+            for err in results[i]["errors"]:
+                comment_text += f"- {err}\n"
+
+            para.add_run(comment_text)
+
+    return doc
+
+
+# ===========================
+# 报告生成
 # ===========================
 
 def generate_report(results, summary):
@@ -177,15 +200,15 @@ if uploaded_file:
     total = sum(summary.values())
     st.error(f"共发现 {total} 个问题")
 
-    # 初始化定位
+    # 左右布局
+    col1, col2 = st.columns([1, 2])
+
     if "focus_para" not in st.session_state:
         st.session_state["focus_para"] = None
 
-    col1, col2 = st.columns([1, 2])
-
-    # ===== 左侧：问题列表（按钮版）=====
+    # 左侧
     with col1:
-        st.markdown("## ❌ 问题列表（点击定位）")
+        st.markdown("## ❌ 问题列表")
 
         for para, content in results.items():
             if st.button(f"👉 第{para+1}段", key=f"btn_{para}"):
@@ -194,36 +217,43 @@ if uploaded_file:
             for err in content["errors"]:
                 st.write(f" - {err}")
 
-    # ===== 右侧：原文 =====
+    # 右侧
     with col2:
-        st.markdown("## 📄 原文（定位 + 高亮）")
+        st.markdown("## 📄 原文")
 
-        focus_para = st.session_state.get("focus_para")
+        focus_para = st.session_state["focus_para"]
 
         for i, para in enumerate(doc.paragraphs):
             text = para.text.strip()
 
             if i == focus_para:
                 st.markdown(
-                    f"<div style='background-color:#ffcccc;padding:12px;border-radius:8px'>"
-                    f"<b>👉 当前定位：第{i+1}段</b><br>{text}</div>",
+                    f"<div style='background-color:#ffcccc;padding:10px;border-radius:6px'>"
+                    f"<b>👉 当前段：</b>{text}</div>",
                     unsafe_allow_html=True
                 )
             elif i in results:
                 st.markdown(
-                    f"<div style='background-color:#ffe6e6;padding:8px;border-radius:5px'>"
-                    f"<b>第{i+1}段：</b>{text}</div>",
+                    f"<div style='background-color:#ffe6e6;padding:6px'>"
+                    f"{text}</div>",
                     unsafe_allow_html=True
                 )
             else:
-                st.write(f"第{i+1}段：{text}")
+                st.write(text)
 
-    # ===== 下载报告 =====
+    # 下载报告
     report_path = generate_report(results, summary)
 
     with open(report_path, "rb") as f:
-        st.download_button(
-            "📥 下载Word检测报告",
-            f,
-            file_name="论文检测报告.docx"
-        )
+        st.download_button("📥 下载检测报告", f, file_name="检测报告.docx")
+
+    # 标注论文
+    if st.button("🖍 生成标注版论文"):
+        doc_marked = Document(uploaded_file)
+        doc_marked = highlight_and_comment(doc_marked, results)
+
+        temp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+        doc_marked.save(temp.name)
+
+        with open(temp.name, "rb") as f:
+            st.download_button("📥 下载标注论文", f, file_name="标注论文.docx")
