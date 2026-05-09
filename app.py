@@ -38,6 +38,20 @@ def check_size(run, para, target):
     size = get_size(run, para)
     return size and abs(size - target) < 0.5
 
+def get_spacing_before(para):
+    if para.paragraph_format.space_before:
+        return para.paragraph_format.space_before.pt
+    if para.style and para.style.paragraph_format.space_before:
+        return para.style.paragraph_format.space_before.pt
+    return None
+
+def get_spacing_after(para):
+    if para.paragraph_format.space_after:
+        return para.paragraph_format.space_after.pt
+    if para.style and para.style.paragraph_format.space_after:
+        return para.style.paragraph_format.space_after.pt
+    return None
+
 
 # ===========================
 # 分类函数（稳定版）
@@ -172,15 +186,31 @@ def check(doc):
             if para.alignment != WD_ALIGN_PARAGRAPH.CENTER:
                 errors.append("一级标题必须居中")
 
+            before = get_spacing_before(para)
+            after = get_spacing_after(para)
+
+            # 1行 ≈ 14–18pt
+            if before is None or before < 12:
+                errors.append("一级标题段前应空1行")
+
+            if after is None or after < 12:
+                errors.append("一级标题段后应空1行")
+
         # ===== 错误一级标题 =====
         if ptype == "wrong_title1":
             errors.append("一级标题必须为“第X章”")
 
         # ===== 二级标题 =====
         if ptype == "title2":
-            for run in para.runs:
-                if not check_font(run, para, "黑体"):
-                    errors.append("二级标题应为黑体")
+            before = get_spacing_before(para)
+            after = get_spacing_after(para)
+
+            # 0.5行 ≈ 6pt
+            if before is None or before < 5:
+                errors.append("二级标题段前应为0.5行")
+
+            if after is None or after < 5:
+                errors.append("二级标题段后应为0.5行")
 
         # ===== 图 =====
         if ptype == "figure":
