@@ -103,7 +103,7 @@ def classify(text):
     # 摘要
     if text in ["摘要", "摘 要"]:
         return "cn_abstract_title"
-    if text == "ABSTRACT":
+    if text.upper() == "ABSTRACT":
         return "en_abstract_title"
     if text.startswith("关键词"):
         return "cn_keywords"
