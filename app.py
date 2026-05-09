@@ -11,7 +11,7 @@ uploaded_file = st.file_uploader("上传论文（.docx）", type=["docx"])
 
 
 # ===========================
-# 工具函数
+# 工具函数（增强鲁棒性）
 # ===========================
 
 def is_chinese(text):
@@ -20,8 +20,17 @@ def is_chinese(text):
 def is_english_or_number(text):
     return any(c.isascii() and (c.isalpha() or c.isdigit()) for c in text)
 
-def is_title_level1(text):
-    return re.match(r'^第\d+章', text)
+def extract_chapter(text):
+    """
+    支持：
+    第2章
+    第 2 章
+    第2章 xxx
+    """
+    match = re.search(r'第\s*(\d+)\s*章', text)
+    if match:
+        return int(match.group(1))
+    return None
 
 def is_title_level2(text):
     return re.match(r'^\d+\.\d+', text)
@@ -37,7 +46,7 @@ def is_table(text):
 
 
 # ===========================
-# ✅ 关键：建立章节映射（彻底修复）
+# ✅ 核心：建立章节映射（彻底稳定）
 # ===========================
 
 def build_chapter_map(doc):
@@ -47,10 +56,9 @@ def build_chapter_map(doc):
     for i, para in enumerate(doc.paragraphs):
         text = para.text.strip()
 
-        if re.match(r'^第\d+章', text):
-            match = re.search(r'\d+', text)
-            if match:
-                current_chapter = int(match.group())
+        chapter = extract_chapter(text)
+        if chapter:
+            current_chapter = chapter
 
         chapter_map[i] = current_chapter
 
@@ -58,7 +66,7 @@ def build_chapter_map(doc):
 
 
 # ===========================
-# 核心检测
+# 核心检测（稳定版）
 # ===========================
 
 def check_format(doc):
@@ -97,33 +105,33 @@ def check_format(doc):
             errors.append("未设置首行缩进")
             summary["缩进错误"] += 1
 
-        # ===== 一级标题 =====
-        if is_title_level1(text):
+        # ===== 一级标题（禁止中文编号）=====
+        if extract_chapter(text):
             if "第一章" in text:
-                errors.append("一级标题不能用中文编号")
+                errors.append("一级标题不能使用中文编号")
                 summary["标题错误"] += 1
 
         # ===== 二级标题 =====
-        if is_title_level2(text):
+        if is_title_level2(text) and current_chapter:
             match = re.match(r'^(\d+)\.(\d+)', text)
             if match:
                 chapter_num = int(match.group(1))
 
-                if current_chapter and chapter_num != current_chapter:
+                if chapter_num != current_chapter:
                     errors.append(
-                        f"二级标题错误：属于第{current_chapter}章，却写成{chapter_num}.x"
+                        f"二级标题错误：当前是第{current_chapter}章，但写成{chapter_num}.x"
                     )
                     summary["标题错误"] += 1
 
         # ===== 三级标题 =====
-        if is_title_level3(text):
+        if is_title_level3(text) and current_chapter:
             match = re.match(r'^(\d+)\.(\d+)\.(\d+)', text)
             if match:
                 chapter_num = int(match.group(1))
 
-                if current_chapter and chapter_num != current_chapter:
+                if chapter_num != current_chapter:
                     errors.append(
-                        f"三级标题错误：属于第{current_chapter}章，却写成{chapter_num}.x.x"
+                        f"三级标题错误：当前是第{current_chapter}章，但写成{chapter_num}.x.x"
                     )
                     summary["标题错误"] += 1
 
