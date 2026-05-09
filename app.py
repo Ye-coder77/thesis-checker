@@ -3,8 +3,8 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import re
 
-st.set_page_config(page_title="论文格式检测工具（稳定版）", layout="wide")
-st.title("📄 学位论文格式检测工具（稳定版）")
+st.set_page_config(page_title="论文格式检测工具（终极版）", layout="wide")
+st.title("📄 学位论文格式检测工具（终极版）")
 
 uploaded_file = st.file_uploader("上传论文（.docx）", type=["docx"])
 
@@ -22,6 +22,14 @@ def get_size(run, para):
         return para.style.font.size.pt
     return None
 
+def get_line_spacing(para):
+    pf = para.paragraph_format
+    if pf.line_spacing_rule:
+        return pf.line_spacing_rule
+    if para.style and para.style.paragraph_format.line_spacing_rule:
+        return para.style.paragraph_format.line_spacing_rule
+    return None
+
 def check_font(run, para, target):
     font = get_font(run, para)
     return font and target in font
@@ -32,12 +40,12 @@ def check_size(run, para, target):
 
 
 # ===========================
-# 分类函数（修复顺序）
+# 分类函数（稳定版）
 # ===========================
 def classify(text):
     text = text.strip()
 
-    # ===== 摘要 =====
+    # 摘要
     if text in ["摘要", "摘 要"]:
         return "cn_abstract_title"
     if text == "ABSTRACT":
@@ -47,7 +55,7 @@ def classify(text):
     if text.startswith("KEY WORDS"):
         return "en_keywords"
 
-    # ===== 标题（优先级最高）=====
+    # 标题（优先）
     if re.match(r'^\d+\.\d+\.\d+', text):
         return "title3"
     if re.match(r'^\d+\.\d+', text):
@@ -59,26 +67,26 @@ def classify(text):
     if re.match(r'^（\d+）', text):
         return "title4"
 
-    # ===== 目录（必须放后面）=====
+    # 目录（放后面）
     if text == "目录":
         return "toc_title"
     if re.match(r'^\d+(\.\d+)*\s+.*\s+\d+$', text):
         return "toc_item"
 
-    # ===== 图表 =====
+    # 图表
     if text.startswith("图"):
         return "figure"
     if text.startswith("表"):
         return "table"
 
-    # ===== 正文 =====
+    # 正文
     if re.search(r'[a-zA-Z]', text):
         return "en_body"
     return "cn_body"
 
 
 # ===========================
-# 核心检测
+# 核心检测（完整版）
 # ===========================
 def check(doc):
     results = {}
@@ -93,10 +101,13 @@ def check(doc):
         errors = []
         prev = doc.paragraphs[i-1].text.strip() if i > 0 else ""
 
+        line_rule = get_line_spacing(para)
+
         # ===== 中文摘要标题 =====
         if ptype == "cn_abstract_title":
             if para.alignment != WD_ALIGN_PARAGRAPH.CENTER:
                 errors.append("摘要标题应居中")
+
             for run in para.runs:
                 if not check_font(run, para, "黑体"):
                     errors.append("摘要标题应为黑体")
@@ -111,23 +122,30 @@ def check(doc):
                 if not check_size(run, para, 12):
                     errors.append("摘要正文应为小四（12pt）")
 
+            if line_rule != 1:
+                errors.append("摘要正文应为1.5倍行距")
+
             if pf.first_line_indent is None:
                 errors.append("摘要正文应首行缩进2字符")
-
-        # ===== 中文关键词 =====
-        if ptype == "cn_keywords":
-            if not text.startswith("关键词："):
-                errors.append("关键词应以“关键词：”开头")
 
         # ===== 英文摘要标题 =====
         if ptype == "en_abstract_title":
             if para.alignment != WD_ALIGN_PARAGRAPH.CENTER:
                 errors.append("ABSTRACT应居中")
+
             if not any(run.bold for run in para.runs):
                 errors.append("ABSTRACT应加粗")
+
             for run in para.runs:
                 if not check_font(run, para, "Times"):
                     errors.append("ABSTRACT应为Times New Roman")
+                if not check_size(run, para, 16):
+                    errors.append("ABSTRACT应为三号（16pt）")
+
+        # ===== 英文摘要正文 =====
+        if prev == "ABSTRACT" and ptype == "en_body":
+            if line_rule != 2:
+                errors.append("英文摘要应为2倍行距")
 
         # ===== 中文正文 =====
         if ptype == "cn_body":
@@ -137,8 +155,11 @@ def check(doc):
                 if not check_size(run, para, 12):
                     errors.append("中文正文应为小四（12pt）")
 
+            if line_rule != 1:
+                errors.append("正文应为1.5倍行距")
+
             if pf.first_line_indent is None:
-                errors.append("正文应首行缩进")
+                errors.append("正文应首行缩进2字符")
 
         # ===== 英文正文 =====
         if ptype == "en_body":
