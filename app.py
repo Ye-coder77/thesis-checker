@@ -11,7 +11,7 @@ uploaded_file = st.file_uploader("上传论文（.docx）", type=["docx"])
 
 
 # ===========================
-# 工具函数（增强鲁棒性）
+# 工具函数
 # ===========================
 
 def is_chinese(text):
@@ -20,17 +20,8 @@ def is_chinese(text):
 def is_english_or_number(text):
     return any(c.isascii() and (c.isalpha() or c.isdigit()) for c in text)
 
-def extract_chapter(text):
-    """
-    支持：
-    第2章
-    第 2 章
-    第2章 xxx
-    """
-    match = re.search(r'第\s*(\d+)\s*章', text)
-    if match:
-        return int(match.group(1))
-    return None
+def is_title_level1(text):
+    return re.match(r'^第.*章', text)
 
 def is_title_level2(text):
     return re.match(r'^\d+\.\d+', text)
@@ -46,27 +37,7 @@ def is_table(text):
 
 
 # ===========================
-# ✅ 核心：建立章节映射（彻底稳定）
-# ===========================
-
-def build_chapter_map(doc):
-    chapter_map = {}
-    current_chapter = None
-
-    for i, para in enumerate(doc.paragraphs):
-        text = para.text.strip()
-
-        chapter = extract_chapter(text)
-        if chapter:
-            current_chapter = chapter
-
-        chapter_map[i] = current_chapter
-
-    return chapter_map
-
-
-# ===========================
-# 核心检测（稳定版）
+# 核心检测（无章节逻辑）
 # ===========================
 
 def check_format(doc):
@@ -76,11 +47,9 @@ def check_format(doc):
         "字号错误": 0,
         "行距错误": 0,
         "缩进错误": 0,
-        "标题错误": 0,
-        "图表错误": 0
+        "标题格式问题": 0,
+        "图表问题": 0
     }
-
-    chapter_map = build_chapter_map(doc)
 
     for i, para in enumerate(doc.paragraphs):
         text = para.text.strip()
@@ -89,7 +58,6 @@ def check_format(doc):
 
         errors = []
         pf = para.paragraph_format
-        current_chapter = chapter_map[i]
 
         # ===== 行距 =====
         ls = pf.line_spacing
@@ -105,47 +73,33 @@ def check_format(doc):
             errors.append("未设置首行缩进")
             summary["缩进错误"] += 1
 
-        # ===== 一级标题（禁止中文编号）=====
-        if extract_chapter(text):
-            if "第一章" in text:
-                errors.append("一级标题不能使用中文编号")
-                summary["标题错误"] += 1
+        # ===== 标题格式 =====
+        if is_title_level1(text):
+            for run in para.runs:
+                if run.font.name and "黑体" not in run.font.name:
+                    errors.append("一级标题应为黑体")
+                    summary["标题格式问题"] += 1
 
-        # ===== 二级标题 =====
-        if is_title_level2(text) and current_chapter:
-            match = re.match(r'^(\d+)\.(\d+)', text)
-            if match:
-                chapter_num = int(match.group(1))
+        if is_title_level2(text):
+            bold = any(run.bold for run in para.runs)
+            if not bold:
+                errors.append("二级标题应加粗")
+                summary["标题格式问题"] += 1
 
-                if chapter_num != current_chapter:
-                    errors.append(
-                        f"二级标题错误：当前是第{current_chapter}章，但写成{chapter_num}.x"
-                    )
-                    summary["标题错误"] += 1
-
-        # ===== 三级标题 =====
-        if is_title_level3(text) and current_chapter:
-            match = re.match(r'^(\d+)\.(\d+)\.(\d+)', text)
-            if match:
-                chapter_num = int(match.group(1))
-
-                if chapter_num != current_chapter:
-                    errors.append(
-                        f"三级标题错误：当前是第{current_chapter}章，但写成{chapter_num}.x.x"
-                    )
-                    summary["标题错误"] += 1
+        if is_title_level3(text):
+            bold = any(run.bold for run in para.runs)
+            if not bold:
+                errors.append("三级标题应加粗")
+                summary["标题格式问题"] += 1
 
         # ===== 图表 =====
-        if current_chapter:
-            if is_figure(text):
-                if not re.match(rf'^图{current_chapter}\.\d+', text):
-                    errors.append("图编号应为 图X.X")
-                    summary["图表错误"] += 1
+        if is_figure(text):
+            errors.append("请确认图标题在图片下方")
+            summary["图表问题"] += 1
 
-            if is_table(text):
-                if not re.match(rf'^表{current_chapter}\.\d+', text):
-                    errors.append("表编号应为 表X.X")
-                    summary["图表错误"] += 1
+        if is_table(text):
+            errors.append("请确认表标题在表格上方")
+            summary["图表问题"] += 1
 
         # ===== 字体字号 =====
         for run in para.runs:
@@ -236,8 +190,8 @@ if uploaded_file:
 
     col1, col2, col3 = st.columns(3)
     col1.metric("字体", summary["字体错误"])
-    col2.metric("标题", summary["标题错误"])
-    col3.metric("图表", summary["图表错误"])
+    col2.metric("标题", summary["标题格式问题"])
+    col3.metric("图表", summary["图表问题"])
 
     st.divider()
 
