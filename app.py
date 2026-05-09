@@ -8,7 +8,7 @@ import tempfile
 
 st.set_page_config(page_title="论文格式检测工具（专业版）", layout="wide")
 
-st.title("📄 学位论文格式检测工具（专业版）")
+st.title("📄 学位论文格式检测工具（测试版）")
 
 uploaded_file = st.file_uploader("上传论文（.docx）", type=["docx"])
 
