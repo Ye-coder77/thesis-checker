@@ -2,6 +2,7 @@ import streamlit as st
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import re
+import tempfile
 
 st.set_page_config(page_title="论文格式检测工具（终极版）", layout="wide")
 st.title("📄 学位论文格式检测工具（终极版）")
@@ -51,6 +52,46 @@ def get_spacing_after(para):
     if para.style and para.style.paragraph_format.space_after:
         return para.style.paragraph_format.space_after.pt
     return None
+
+# ===========================
+# 生成检测报告（Word）
+# ===========================
+def generate_report(results):
+    doc = Document()
+    doc.add_heading("论文格式检测报告", 0)
+
+    for i, content in results.items():
+        doc.add_paragraph(f"第{i}段：{content['text']}")
+        for err in content["errors"]:
+            doc.add_paragraph(f"- {err}")
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+    doc.save(tmp.name)
+    return tmp.name
+
+
+# ===========================
+# 生成标注论文
+# ===========================
+def generate_marked_doc(original_doc, results):
+    doc = original_doc
+
+    for i, para in enumerate(doc.paragraphs, start=1):
+        if i in results:
+            # 高亮原文
+            for run in para.runs:
+                run.font.highlight_color = 7  # 黄色
+
+            # 添加问题说明
+            note = "\n【格式问题】\n"
+            for err in results[i]["errors"]:
+                note += f"- {err}\n"
+
+            para.add_run(note)
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+    doc.save(tmp.name)
+    return tmp.name
 
 
 # ===========================
@@ -264,16 +305,53 @@ if uploaded_file:
 
     grouped = {"摘要": [], "正文": [], "标题": [], "图表": [], "目录": []}
 
-    for para, content in results.items():
-        group = categories.get(content["type"], "正文")
-        grouped[group].append((para, content))
+    # 分类汇总
+for para, content in results.items():
+    group = categories.get(content["type"], "正文")
+    grouped[group].append((para, content))
 
-    st.error(f"⚠️ 共发现 {len(results)} 处问题")
+st.error(f"⚠️ 共发现 {len(results)} 处问题")
 
-    for group_name, items in grouped.items():
-        if items:
-            with st.expander(f"📌 {group_name}部分（{len(items)}项）"):
-                for para, content in items:
-                    st.markdown(f"**第{para}段：{content['text']}**")
-                    for err in content["errors"]:
-                        st.write(f"👉 {err}")
+# ===========================
+# 展示检测结果
+# ===========================
+for group_name, items in grouped.items():
+    if items:
+        with st.expander(f"📌 {group_name}部分（{len(items)}项）"):
+            for para, content in items:
+
+                # 段落标题
+                st.markdown(f"**第{para}段：{content['text']}**")
+
+                # 错误列表
+                for err in content["errors"]:
+                    st.write(f"👉 {err}")
+
+                # 分隔（让UI清晰）
+                st.markdown("---")
+
+# ===========================
+# ⬇️ 新增功能（导出 + 标注）
+# ===========================
+st.divider()
+
+# 下载检测报告
+report_path = generate_report(results)
+with open(report_path, "rb") as f:
+    st.download_button(
+        "📥 下载检测报告",
+        f,
+        file_name="论文格式检测报告.docx"
+    )
+
+# 标注论文
+if st.button("🖍 生成标注论文"):
+    doc2 = Document(uploaded_file)
+    marked_path = generate_marked_doc(doc2, results)
+
+    with open(marked_path, "rb") as f:
+        st.download_button(
+            "📥 下载标注论文",
+            f,
+            file_name="标注论文.docx"
+        )
